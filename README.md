@@ -42,29 +42,103 @@ CLAUDE_MANAGED_ENVIRONMENT_ID=your_environment_id
 PORT=3025
 ```
 
-## How the application was developed
+## How the app was build
 
-The browser collects inputs; the Node host validates requests; the lesson implementation produces observable evidence. The architecture page walks through the real source with numbered steps, prerequisite configuration, source filenames and code excerpts.
+### 1. Preserve unavailable usage as unknown
 
-### Lesson implementation
+Negative counters stand for missing usage. The result is incomplete with null counters rather than silently reporting zero consumption.
 
-[src/lesson.ts](https://github.com/luiscoco/Udemy-claude-managed-agents-lesson-c25-app/blob/main/src/lesson.ts)
+Source: [src/lesson.ts](src/lesson.ts#L13) · selected statements
 
 ```typescript
-  async run(input) {
+const i = number(input, "inputTokens"),
+  o = number(input, "outputTokens");
 
-const i=number(input,"inputTokens"),o=number(input,"outputTokens");
-if(i<0||o<0)return report("incomplete","Provider usage was unavailable",{inputTokens:null,outputTokens:null},["Retain missing counters as unknown"]);
-const event={id:"usage-1",type:"span.model_request_end",inputTokens:i,outputTokens:o};
-const delivered=flag(input,"duplicateDelivery")?[event,event]:[event], seen=new Set<string>(),audit:Input[]=[];
-for(const e of delivered){if(seen.has(e.id))continue;audit.push({eventId:e.id,type:e.type,inputTokens:e.inputTokens,outputTokens:e.outputTokens});seen.add(e.id);}
-return report("passed","Projected usage once without storing raw prompt or credential text",{inputTokens:i,outputTokens:o,audit,rawSecretLogged:false,coverage:"authored request window"},["Project only approved audit fields","Append the projection before marking seen","Keep cumulative snapshots separate from request spans"]);
-
-  }
-};
+if (i < 0 || o < 0)
+  return report(
+    "incomplete",
+    "Provider usage was unavailable",
+    { inputTokens: null, outputTokens: null },
+    ["Retain missing counters as unknown"],
+  );
 ```
 
-Read the architecture page for the remaining source excerpts and explanations, including input handling and optional provider behavior. The diagram describes this application, rather than implying that an external integration has been implemented.
+### 2. Append a redacted projection before marking seen
+
+Repeated delivery shares one event ID. The loop appends only approved usage fields to audit, then marks that ID handled, so duplicates cannot double-count this observation.
+
+Source: [src/lesson.ts](src/lesson.ts#L15) · selected statements
+
+```typescript
+const event = {
+  id: "usage-1",
+  type: "span.model_request_end",
+  inputTokens: i,
+  outputTokens: o,
+};
+
+const delivered = flag(input, "duplicateDelivery") ? [event, event] : [event],
+  seen = new Set<string>(),
+  audit: Input[] = [];
+
+for (const e of delivered) {
+  if (seen.has(e.id)) continue;
+  audit.push({
+    eventId: e.id,
+    type: e.type,
+    inputTokens: e.inputTokens,
+    outputTokens: e.outputTokens,
+  });
+  seen.add(e.id);
+}
+```
+
+### 3. Keep the coverage boundary visible
+
+The report includes the usage projection and labels its authored request window. It does not store prompt or credential text, or add cumulative session snapshots to request usage.
+
+Source: [src/lesson.ts](src/lesson.ts#L18)
+
+```typescript
+return report(
+  "passed",
+  "Projected usage once without storing raw prompt or credential text",
+  {
+    inputTokens: i,
+    outputTokens: o,
+    audit,
+    rawSecretLogged: false,
+    coverage: "authored request window",
+  },
+  [
+    "Project only approved audit fields",
+    "Append the projection before marking seen",
+    "Keep cumulative snapshots separate from request spans",
+  ],
+);
+```
+
+### Check your understanding
+
+Run **Project and deduplicate usage** in the application. Compare the result with these scenario expectations:
+
+```json
+{
+  "input": {
+    "inputTokens": 120,
+    "outputTokens": 30,
+    "duplicateDelivery": true,
+    "includeSecret": "example-untrusted-value"
+  },
+  "expectedOutcome": "passed",
+  "checkEvidence": {
+    "inputTokens": 120,
+    "outputTokens": 30
+  }
+}
+```
+
+Then try **Missing usage is unknown**. Its expected outcome is `incomplete`; identify the condition or evidence field that explains the difference.
 
 ## Validation
 
