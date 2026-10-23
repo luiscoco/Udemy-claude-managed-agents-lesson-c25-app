@@ -1,0 +1,51 @@
+import Anthropic from "@anthropic-ai/sdk";
+import type { BetaManagedAgentsSessionEvent as Event } from "@anthropic-ai/sdk/resources/beta/sessions/events";
+type Provenance = { sessionId: string; agentId: string; agentVersion: number; environmentId: string; traceId: string };
+type RecordData = Record<string, unknown>;
+export interface AuditSink {
+  // Durable, idempotent append keyed by session/event; failure must be visible.
+  // No raw prompt, credential or tool-input text is passed by this projector.
+  appendOnce(key: string, record: RecordData): Promise<void>;
+}
+export function makeMonitor(provenance: Provenance, sink: AuditSink) {
+  const seen = new Set<string>();
+  const state = { provenance, observedTokens: null as null | { input: number; output: number; cacheRead: number; cacheCreate: number },
+    lastStopReason: null as string | null, lastLifecycleEventId: null as string | null, observedErrors: 0 };
+  return { state, async ingest(event: Event) {
+    if (seen.has(event.id)) return;
+    const record: RecordData = { ...provenance, eventId: event.id, type: event.type };
+    if (event.type === "agent.tool_use" || event.type === "agent.mcp_tool_use") {
+      Object.assign(record, { name: event.name, permission: event.evaluated_permission ?? "unknown",
+        evaluation: event.evaluation ?? null, inputFields: Object.keys(event.input).sort() });
+    }
+    if (event.type === "user.tool_confirmation") Object.assign(record, { toolUseId: event.tool_use_id, decision: event.result });
+    if (event.type === "agent.tool_result") Object.assign(record, { toolUseId: event.tool_use_id, isError: event.is_error ?? null });
+    if (event.type === "agent.mcp_tool_result") Object.assign(record, { toolUseId: event.mcp_tool_use_id, isError: event.is_error ?? null });
+    if (event.type === "span.model_request_end") record.modelUsage = event.model_usage;
+    if (event.type === "session.status_idle") record.stopReason = event.stop_reason.type;
+    await sink.appendOnce(provenance.sessionId + ":" + event.id, record);
+    // Apply only after durable append. On restart, rebuild totals from durable projection records.
+    if (event.type === "span.model_request_end") {
+      const u = event.model_usage;
+      state.observedTokens ??= { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+      state.observedTokens.input += u.input_tokens; state.observedTokens.output += u.output_tokens;
+      state.observedTokens.cacheRead += u.cache_read_input_tokens;
+      state.observedTokens.cacheCreate += u.cache_creation_input_tokens;
+    }
+    if (event.type === "session.status_idle") { state.lastStopReason = event.stop_reason.type; state.lastLifecycleEventId = event.id; }
+    if (event.type === "session.status_running") { state.lastStopReason = null; state.lastLifecycleEventId = event.id; }
+    if (event.type === "session.error") state.observedErrors++;
+    seen.add(event.id);
+  } };
+}
+export async function readProviderTotals(client: Anthropic, sessionId: string) {
+  const session = await client.beta.sessions.retrieve(sessionId, {}, { maxRetries: 2, timeout: 10000 });
+  return { sessionId, observedStatus: session.status, providerUsage: session.usage };
+}
+// observedTokens counts only deduplicated request spans seen by this monitor; null means unavailable.
+// Provider cumulative usage/list_cost is another observation. Never add snapshots to span totals.
+// list_cost is tracked public-list consumption, not a promise of the final invoice amount.
+// End_turn marks an observed turn end, including ordinary interruptions; it does not prove task success.
+// Serialize ingest calls. Restart recovery needs durable projection replay plus provenance.
+// Durable append storage needs access control, retention and tamper controls; console.log is not that sink.
+// For exact-input audits, protect a separately redacted evidence store. This example logs field names only.

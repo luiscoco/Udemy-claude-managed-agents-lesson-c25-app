@@ -1,0 +1,28 @@
+{
+  "source": "live-provider-commentary",
+  "sessionId": "sesn_013mNagaXskvnJNZWNHaFdnW",
+  "answer": "This experiment demonstrates a production monitoring pattern where only approved audit fields (token counts, event IDs, event types) are projected from model requests \u2014 no raw prompt text or credential data is stored. An audit log entry is appended before the request is marked as seen, and cumulative snapshots are kept separate from individual request spans. The outcome shows this selective logging approach passed without exposing sensitive content.",
+  "stopReason": "end_turn",
+  "eventTypes": [
+    "session.status_running",
+    "session.thread_status_running",
+    "user.message",
+    "span.model_request_start",
+    "agent.message",
+    "span.model_request_end",
+    "session.thread_status_idle",
+    "session.usage",
+    "session.status_idle"
+  ],
+  "requestUsage": [
+    {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 633,
+      "output_tokens": 84,
+      "speed": "standard"
+    }
+  ],
+  "experimentHash": "4e75d8af3c8ca8bc11c5c286cb0861db73162795e6be8b324d69b6613a21e95d",
+  "scope": "A real text-only model response about the local experiment. External integrations and the experiment's correctness are not certified by this response."
+}

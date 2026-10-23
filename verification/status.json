@@ -1,0 +1,13 @@
+{
+  "lesson": "C25",
+  "title": "Production Monitoring, Audit Logs and Telemetry",
+  "path": "lesson-c25\\lesson-c25-app",
+  "port": 3025,
+  "scenarios": 2,
+  "state": "implemented and verified",
+  "liveScope": "text-only commentary about the local result",
+  "typecheck": true,
+  "localTests": true,
+  "browserSmoke": "passed: desktop, mobile, scenario controls, source view",
+  "liveCommentarySmoke": "passed: real text-only session reached end_turn"
+}
